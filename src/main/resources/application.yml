@@ -1,0 +1,37 @@
+# ============================================================
+# Notification Platform — Application Configuration
+# Phase 1: Notification REST API
+#
+# RULE: Never hardcode secrets or passwords here.
+# For secrets, use environment variables or a secrets manager.
+# ============================================================
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: notification-platform
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  endpoint:
+    health:
+      show-details: always
+
+info:
+  app:
+    name: Notification Platform
+    description: Distributed Notification Platform
+    version: 0.0.1-SNAPSHOT
+    phase: Phase 1 - Notification REST API
+
+logging:
+  level:
+    root: INFO
+    com.notificationplatform: DEBUG

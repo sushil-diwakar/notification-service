@@ -1,6 +1,6 @@
 # Distributed Notification Platform
 
-> **Current Phase: Phase 0 — Project Bootstrap**
+> **Current Phase: Phase 1 — Notification REST API**
 
 A production-style backend system for delivering notifications across multiple channels (Email, SMS, Push). Built incrementally, phase by phase, following clean architecture and SOLID principles.
 
@@ -20,22 +20,34 @@ The final architecture will use **Apache Kafka** to decouple notification creati
 
 ---
 
-## Current Architecture (Phase 0)
+## Current Architecture (Phase 1)
 
 ```
 Client (browser / curl / Postman)
           │
-          │  HTTP GET /api/v1/health
+          │  HTTP POST /api/v1/notifications
+          │  HTTP GET  /api/v1/notifications/{id}
+          │  HTTP GET  /api/v1/notifications
+          │  HTTP GET  /api/v1/health
           ▼
-  ┌─────────────────────────────┐
-  │   Spring Boot REST API      │
-  │                             │
-  │   HealthController          │
-  │   └── GET /api/v1/health    │
-  └─────────────────────────────┘
+  ┌─────────────────────────────────────────────────────────────┐
+  │                   Spring Boot REST API                      │
+  │                                                             │
+  │   HealthController          NotificationController          │
+  │   └── GET /api/v1/health    ├── POST /api/v1/notifications  │
+  │                             ├── GET  /api/v1/notifications/{id}
+  │                             └── GET  /api/v1/notifications  │
+  │                                           │                 │
+  │                                           ▼                 │
+  │                                  NotificationService        │
+  │                                           │                 │
+  │                                           ▼                 │
+  │                              NotificationRepository         │
+  │                                  (In-Memory Store)          │
+  └─────────────────────────────────────────────────────────────┘
 ```
 
-At this stage the application is intentionally minimal. There is no database, no message broker, and no business logic. The goal is a working, tested, properly structured foundation.
+In Phase 1, the core notification domain and REST API are fully functional with in-memory persistence and Bean Validation.
 
 ---
 
@@ -47,6 +59,7 @@ At this stage the application is intentionally minimal. There is no database, no
 | Spring Boot | 3.3.x | Application framework |
 | Maven | 3.9+ | Build tool & dependency management |
 | Spring Web | (via Boot) | REST API, embedded Tomcat |
+| Spring Boot Validation | (via Boot) | Jakarta Bean Validation (Hibernate Validator) |
 | Spring Boot Actuator | (via Boot) | Production-grade operations endpoints |
 | JUnit 5 | (via Boot) | Unit & integration testing |
 | Mockito | (via Boot) | Test doubles (mocks/stubs) |
@@ -55,7 +68,7 @@ At this stage the application is intentionally minimal. There is no database, no
 
 | Technology | Phase | Purpose |
 |------------|-------|---------|
-| MySQL + Spring Data JPA | Phase 1 | Persistent notification storage |
+| MySQL + Spring Data JPA | Phase 2 | Persistent notification storage |
 | Kafka | Phase 3 | Async notification delivery |
 | Redis | Phase 4 | Caching & rate limiting |
 | Spring Security + JWT | Phase 5 | Authentication & authorization |
@@ -99,6 +112,45 @@ Expected response:
 }
 ```
 
+### Submit a notification request (Phase 1)
+
+```bash
+curl -X POST http://localhost:8080/api/v1/notifications \
+  -H "Content-Type: application/json" \
+  -d '{
+    "recipient": "user@example.com",
+    "channel": "EMAIL",
+    "subject": "Welcome",
+    "message": "Welcome to our platform"
+  }'
+```
+
+Expected response (`201 Created` with `Location` header):
+```json
+{
+  "id": "7b8e5c1e-8e5e-4a67-938c-8f15b81a28a3",
+  "recipient": "user@example.com",
+  "channel": "EMAIL",
+  "subject": "Welcome",
+  "message": "Welcome to our platform",
+  "status": "CREATED",
+  "createdAt": "2026-09-23T02:30:00.000Z",
+  "updatedAt": "2026-09-23T02:30:00.000Z"
+}
+```
+
+### Retrieve a notification by ID
+
+```bash
+curl http://localhost:8080/api/v1/notifications/7b8e5c1e-8e5e-4a67-938c-8f15b81a28a3
+```
+
+### List all notifications
+
+```bash
+curl http://localhost:8080/api/v1/notifications
+```
+
 ### Spring Actuator endpoints (infrastructure health)
 
 ```bash
@@ -113,9 +165,6 @@ curl http://localhost:8080/actuator/info
 ```bash
 # Run all tests
 mvn test
-
-# Run tests with verbose output
-mvn test -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
 ---
@@ -138,42 +187,48 @@ src/
 ├── main/
 │   ├── java/com/notificationplatform/
 │   │   ├── NotificationPlatformApplication.java   # Entry point
-│   │   ├── controller/                            # HTTP layer — receives requests
-│   │   │   └── HealthController.java
-│   │   ├── service/                               # Business logic layer (Phase 1+)
-│   │   ├── repository/                            # Data access layer (Phase 1+)
-│   │   ├── entity/                                # JPA entities / DB models (Phase 1+)
-│   │   ├── dto/                                   # Request/response data shapes
+│   │   ├── controller/                            # REST controllers (HTTP boundary)
+│   │   │   ├── HealthController.java
+│   │   │   └── NotificationController.java
+│   │   ├── service/                               # Business logic & orchestration
+│   │   │   └── NotificationService.java
+│   │   ├── repository/                            # Data access boundary
+│   │   │   ├── NotificationRepository.java        # Interface (DIP)
+│   │   │   └── InMemoryNotificationRepository.java# Phase 1 In-Memory impl
+│   │   ├── entity/                                # Domain models & enums
+│   │   │   ├── Notification.java
+│   │   │   ├── NotificationChannel.java
+│   │   │   └── NotificationStatus.java
+│   │   ├── dto/                                   # Request & response data shapes
+│   │   │   ├── CreateNotificationRequest.java
+│   │   │   ├── NotificationResponse.java
+│   │   │   ├── ErrorResponse.java
 │   │   │   └── HealthResponse.java
-│   │   ├── exception/                             # Custom exceptions & error handling (Phase 1+)
-│   │   ├── config/                                # Spring @Configuration classes (Phase 1+)
-│   │   └── common/                                # Shared utilities (Phase 1+)
+│   │   ├── exception/                             # Custom exceptions & global handler
+│   │   │   ├── NotificationNotFoundException.java
+│   │   │   └── GlobalExceptionHandler.java
+│   │   ├── config/                                # Spring configuration (future phases)
+│   │   └── common/                                # Shared utilities
 │   └── resources/
-│       └── application.properties                 # Externalized configuration
+│       └── application.yml                        # Externalized configuration
 └── test/
     └── java/com/notificationplatform/
         ├── NotificationPlatformApplicationTest.java  # Context smoke test
-        └── controller/
-            └── HealthControllerTest.java             # Endpoint tests
+        ├── NotificationIntegrationTest.java          # End-to-end integration test
+        ├── controller/
+        │   ├── HealthControllerTest.java             # Health endpoint slice test
+        │   └── NotificationControllerTest.java       # Notification API slice tests
+        └── service/
+            └── NotificationServiceTest.java          # Service business logic unit tests
 ```
 
 ---
 
 ## Configuration
 
-All configuration is externalized in `src/main/resources/application.properties`.
+All configuration is externalized in `src/main/resources/application.yml`.
 
 **No secrets, passwords, or API keys are committed to this repository.**
-
-To override any property at runtime:
-
-```bash
-# Via command-line argument
-java -jar app.jar --server.port=9090
-
-# Via environment variable (Spring converts SERVER_PORT → server.port)
-SERVER_PORT=9090 java -jar app.jar
-```
 
 ---
 
@@ -182,8 +237,8 @@ SERVER_PORT=9090 java -jar app.jar
 | Phase | Goal | Status |
 |-------|------|--------|
 | **Phase 0** | Project bootstrap, health endpoint | ✅ Complete |
-| Phase 1 | Notification domain model, JPA, MySQL | ⏳ Planned |
-| Phase 2 | Notification service, REST CRUD API | ⏳ Planned |
+| **Phase 1** | Notification domain model, in-memory repo, REST API, validation | ✅ Complete |
+| Phase 2 | MySQL persistence, Spring Data JPA | ⏳ Planned |
 | Phase 3 | Kafka integration, async delivery | ⏳ Planned |
 | Phase 4 | Redis caching, rate limiting | ⏳ Planned |
 | Phase 5 | Spring Security, JWT authentication | ⏳ Planned |
